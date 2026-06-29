@@ -173,7 +173,14 @@ def init_db():
             FOREIGN KEY (consommable_id) REFERENCES consommables(id) ON DELETE SET NULL
         )
     ''')
-    
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS annees_academiques (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            annee TEXT NOT NULL,
+            est_active INTEGER DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     # === INSERTION ADMIN PAR DEFAUT ===
     cur.execute("SELECT id FROM utilisateurs WHERE email = 'admin@epl.tg'")
     if not cur.fetchone():
@@ -298,7 +305,7 @@ def inscription():
         email = request.form['email']
         username = request.form['username']
         nom_complet = request.form['nom_complet']
-        profession = request.form.get('profession', '')
+        identifiant = request.form.get('identifiant', '')
         role = request.form['role']
         password = request.form['password']
         confirm_password = request.form['confirm_password']
@@ -333,13 +340,13 @@ def inscription():
             return redirect(url_for('inscription'))
         
         cur.execute("""
-            INSERT INTO utilisateurs (email, username, nom_complet, profession, role, password_hash, est_verifie, est_actif)
+            INSERT INTO utilisateurs (email, username, nom_complet, identifiant, role, password_hash, est_verifie, est_actif)
             VALUES (?, ?, ?, ?, ?, ?, 0, 1)
-        """, (email, username, nom_complet, profession, role, hashed.decode('utf-8')))
+        """, (email, username, nom_complet, identifiant, role, hashed.decode('utf-8')))
         db.commit()
         db.close()
         
-        flash('✅ Inscription réussie ! Votre compte doit être validé par l\'administrateur', 'success')
+        flash('✅ Inscription réussie ! Un email de validation vous sera envoyé à l\'adresse que vous avez fournie. Vous pourrez vous connecter dès que votre compte sera validé par l\'administrateur.', 'success')
         return redirect(url_for('login'))
     
     return render_template('inscription.html')
@@ -442,6 +449,39 @@ def admin_dashboard():
     
     cur.execute("SELECT * FROM consommables ORDER BY quantite_stock ASC")
     consommables = cur.fetchall()
+
+    # À ajouter avant `db.close()`
+# Tous les utilisateurs
+    cur.execute("""
+        SELECT id, username, email, nom_complet, role, est_verifie, est_actif, derniere_connexion
+        FROM utilisateurs
+        ORDER BY role, nom_complet
+    """)
+    tous_utilisateurs = cur.fetchall()
+
+    # Toutes les séances TP
+    cur.execute("""
+        SELECT s.*, u.nom_complet as enseignant_nom,
+            COUNT(i.id) as nb_inscrits
+        FROM seances_tp s
+        JOIN utilisateurs u ON s.enseignant_id = u.id
+        LEFT JOIN inscriptions_tp i ON s.id = i.seance_id
+        GROUP BY s.id
+        ORDER BY s.date_seance DESC
+    """)
+    toutes_seances = cur.fetchall()
+
+    # Toutes les réservations
+    # Réservations en attente de validation
+    cur.execute("""
+        SELECT r.*, u.nom_complet as etudiant_nom, m.nom as machine_nom
+        FROM reservations_machine r
+        JOIN utilisateurs u ON r.etudiant_id = u.id
+        JOIN machines m ON r.machine_id = m.id
+        WHERE r.statut = 'en_attente'
+        ORDER BY r.date_reservation ASC
+    """)
+    reservations_attente = cur.fetchall()
     
     db.close()
     
@@ -457,7 +497,11 @@ def admin_dashboard():
                          total_magasiniers=total_magasiniers,
                          inscriptions=inscriptions,
                          machines=machines,
-                         consommables=consommables)
+                         consommables=consommables,
+                         tous_utilisateurs=tous_utilisateurs,
+                         toutes_seances=toutes_seances,
+                         toutes_reservations=toutes_reservations,
+                         reservations_attente=reservations_attente)
 
 @app.route('/admin/valider-inscription/<int:user_id>')
 @login_required
@@ -500,7 +544,9 @@ def admin_ajouter_machine():
         INSERT INTO machines (id, nom, disjoncteur, puissance_elec, consignes_securite, epi_requis)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (machine_id, nom, disjoncteur, puissance, consignes, epi))
-    db.commit()
+
+    generer_qr_code(machine_id, nom)
+
     db.close()
     
     flash(f'✅ Machine "{nom}" ajoutée', 'success')
@@ -647,6 +693,20 @@ def enseignant_dashboard():
     """, (current_user.id,))
     tp_en_cours = cur.fetchall()
     
+    # Récupérer les réservations des étudiants (UNIQUEMENT pour ses séances)
+    cur.execute("""
+        SELECT r.*, u.nom_complet as etudiant_nom, m.nom as machine_nom,
+               s.titre as seance_titre
+        FROM reservations_machine r
+        JOIN utilisateurs u ON r.etudiant_id = u.id
+        JOIN machines m ON r.machine_id = m.id
+        LEFT JOIN seances_tp s ON r.seance_id = s.id
+        WHERE r.statut = 'active'
+        AND r.seance_id IN (SELECT id FROM seances_tp WHERE enseignant_id = ?)
+        ORDER BY r.date_reservation ASC
+    """, (current_user.id,))
+    reservations_etudiants = cur.fetchall()
+    
     db.close()
     
     return render_template('enseignant/dashboard.html',
@@ -654,7 +714,8 @@ def enseignant_dashboard():
                          machines_panne=machines_panne,
                          alertes=alertes,
                          seances=seances,
-                         tp_en_cours=tp_en_cours)
+                         tp_en_cours=tp_en_cours,
+                         reservations_etudiants=reservations_etudiants)
 
 @app.route('/enseignant/seance/creer', methods=['GET', 'POST'])
 @login_required
@@ -740,6 +801,9 @@ def suspendre_utilisation(suivi_id):
 @login_required
 @roles_requis('magasinier')
 def magasinier_dashboard():
+    date_debut = request.args.get('date_debut', '')
+    date_fin = request.args.get('date_fin', '')
+    
     db = get_db()
     cur = db.cursor()
     
@@ -768,14 +832,40 @@ def magasinier_dashboard():
         ORDER BY t.date_heure DESC LIMIT 30
     """)
     mouvements = cur.fetchall()
+
+    
+    # Mouvements avec filtrage
+    if date_debut and date_fin:
+        cur.execute("""
+            SELECT t.*, c.designation, u.nom_complet
+            FROM transactions t
+            LEFT JOIN consommables c ON t.consommable_id = c.id
+            LEFT JOIN utilisateurs u ON t.utilisateur_id = u.id
+            WHERE t.type_action IN ('entree_stock', 'sortie_stock')
+            AND DATE(t.date_heure) BETWEEN ? AND ?
+            ORDER BY t.date_heure DESC LIMIT 30
+        """, (date_debut, date_fin))
+    else:
+        cur.execute("""
+            SELECT t.*, c.designation, u.nom_complet
+            FROM transactions t
+            LEFT JOIN consommables c ON t.consommable_id = c.id
+            LEFT JOIN utilisateurs u ON t.utilisateur_id = u.id
+            WHERE t.type_action IN ('entree_stock', 'sortie_stock')
+            ORDER BY t.date_heure DESC LIMIT 30
+        """)
+    
+    mouvements = cur.fetchall()
     
     db.close()
     
     return render_template('magasinier/dashboard.html',
                          consommables=consommables,
                          tp_previsionnels=tp_previsionnels,
-                         mouvements=mouvements)
-
+                         mouvements=mouvements,
+                         date_debut=date_debut,
+                         date_fin=date_fin)
+ 
 @app.route('/magasinier/mouvement', methods=['POST'])
 @login_required
 @roles_requis('magasinier')
@@ -914,41 +1004,53 @@ def reserver_machine():
     heure_debut = request.form['heure_debut']
     heure_fin = request.form['heure_fin']
     membres_groupe = request.form.get('membres_groupe', '')
+    type_reservation = request.form.get('type_reservation', 'LIBRE')
+    ue_projet = request.form.get('ue_projet', '')
+    commentaire = request.form.get('commentaire', '')
     seance_id = request.form.get('seance_id', None)
     
     db = get_db()
     cur = db.cursor()
     
+    # Si réservation PERSO ou LIBRE → statut = 'en_attente' (validation admin)
+    statut_init = 'active'
+    if type_reservation in ['PERSO', 'LIBRE']:
+        statut_init = 'en_attente'
+    
+    # Vérifier les conflits (uniquement si machine réservée)
+    if machine_id != 'SANS_MACHINE':
+        cur.execute("""
+            SELECT COUNT(*) as count FROM reservations_machine
+            WHERE machine_id = ? AND date_reservation = ?
+            AND heure_debut < ? AND heure_fin > ?
+            AND statut = 'active'
+        """, (machine_id, date_reservation, heure_fin, heure_debut))
+        
+        conflit = cur.fetchone()['count']
+        
+        if conflit > 0:
+            flash('❌ Machine déjà réservée sur ce créneau', 'danger')
+            db.close()
+            return redirect(url_for('etudiant_dashboard'))
+    
+    # Insérer la réservation
     cur.execute("""
-        SELECT COUNT(*) as count FROM reservations_machine
-        WHERE machine_id = ? AND date_reservation = ?
-        AND heure_debut < ? AND heure_fin > ?
-        AND statut = 'active'
-    """, (machine_id, date_reservation, heure_fin, heure_debut))
+        INSERT INTO reservations_machine 
+        (machine_id, etudiant_id, seance_id, date_reservation, 
+         heure_debut, heure_fin, membres_groupe, type_reservation, 
+         ue_projet, commentaire, statut)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (machine_id, current_user.id, seance_id, date_reservation, 
+          heure_debut, heure_fin, membres_groupe, type_reservation, 
+          ue_projet, commentaire, statut_init))
+    db.commit()
+    db.close()
     
-    conflit = cur.fetchone()['count']
-    
-    if conflit > 0:
-        flash('❌ Machine déjà réservée sur ce créneau', 'danger')
+    if statut_init == 'en_attente':
+        flash('📋 Réservation en attente de validation par l\'administrateur', 'info')
     else:
-        if seance_id and seance_id != '':
-            cur.execute("""
-                INSERT INTO reservations_machine (machine_id, etudiant_id, seance_id, date_reservation, 
-                                                 heure_debut, heure_fin, membres_groupe)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (machine_id, current_user.id, seance_id, date_reservation, 
-                  heure_debut, heure_fin, membres_groupe))
-        else:
-            cur.execute("""
-                INSERT INTO reservations_machine (machine_id, etudiant_id, date_reservation, 
-                                                 heure_debut, heure_fin, membres_groupe)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (machine_id, current_user.id, date_reservation, 
-                  heure_debut, heure_fin, membres_groupe))
-        db.commit()
         flash('✅ Machine réservée avec succès', 'success')
     
-    db.close()
     return redirect(url_for('etudiant_dashboard'))
 
 @app.route('/etudiant/debuter-tp/<int:reservation_id>')
@@ -1114,6 +1216,93 @@ def export_pdf():
     
     return send_file(buffer, mimetype='application/pdf', as_attachment=True, 
                      download_name=f"rapport_atelier_{datetime.now().strftime('%Y%m%d')}.pdf")
+# === METTRE EN RÉPARATION ===
+@app.route('/admin/machine/reparation/<machine_id>')
+@login_required
+@roles_requis('admin')
+def admin_mettre_reparation(machine_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE machines SET statut = 'reparation' WHERE id = ?", (machine_id,))
+    db.commit()
+    db.close()
+    flash('🟠 Machine mise en réparation', 'info')
+    return redirect(url_for('admin_dashboard'))
+
+# === DÉCLARER PANNE ===
+@app.route('/admin/machine/panne/<machine_id>')
+@login_required
+@roles_requis('admin')
+def admin_declarer_panne(machine_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE machines SET statut = 'panne' WHERE id = ?", (machine_id,))
+    db.commit()
+    db.close()
+    flash('🔴 Machine déclarée en panne', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+# === RÉPARER ===
+@app.route('/admin/machine/reparer/<machine_id>')
+@login_required
+@roles_requis('admin')
+def admin_reparer_machine(machine_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE machines SET statut = 'operationnel' WHERE id = ?", (machine_id,))
+    db.commit()
+    db.close()
+    flash('✅ Machine réparée', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/reservation/valider/<int:reservation_id>')
+@login_required
+@roles_requis('admin')
+def admin_valider_reservation(reservation_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE reservations_machine SET statut = 'active' WHERE id = ?", (reservation_id,))
+    db.commit()
+    db.close()
+    flash('✅ Réservation validée', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/reservation/refuser/<int:reservation_id>')
+@login_required
+@roles_requis('admin')
+def admin_refuser_reservation(reservation_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE reservations_machine SET statut = 'refusee' WHERE id = ?", (reservation_id,))
+    db.commit()
+    db.close()
+    flash('❌ Réservation refusée', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/annee/clore', methods=['POST'])
+@login_required
+@roles_requis('admin')
+def admin_clore_annee():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE annees_academiques SET est_active = 0 WHERE est_active = 1")
+    db.commit()
+    db.close()
+    flash('📅 Année académique clôturée', 'info')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/annee/creer', methods=['POST'])
+@login_required
+@roles_requis('admin')
+def admin_creer_annee():
+    annee = f"{datetime.now().year}-{datetime.now().year + 1}"
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("INSERT INTO annees_academiques (annee, est_active) VALUES (?, 1)", (annee,))
+    db.commit()
+    db.close()
+    flash(f'✅ Nouvelle année académique {annee} créée', 'success')
+    return redirect(url_for('admin_dashboard'))
 
 # ==================== LANCEMENT ====================
 if __name__ == '__main__':

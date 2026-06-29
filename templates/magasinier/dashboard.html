@@ -39,7 +39,7 @@
             <thead><tr><th>Réf.</th><th>Désignation</th><th>Stock</th><th>Min</th><th>Statut</th></tr></thead>
             <tbody>
                 {% for c in consommables %}
-                <tr class="{% if c.quantite_stock <= c.stock_minimum %}alert-row{% endif %}">
+                <tr class="{% if c.quantite_stock <= c.stock_minimum %}alert-row-critical{% endif %}">
                     <td>{{ c.reference }}</td>
                     <td>{{ c.designation }}</td>
                     <td><strong>{{ c.quantite_stock }}</strong> {{ c.unite }}</td>
@@ -92,6 +92,15 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+    <div class="filter-bar">
+        <form method="GET" action="{{ url_for('magasinier_dashboard') }}" class="inline-form">
+            <label>📅 Filtrer par date :</label>
+            <input type="date" name="date_debut" value="{{ date_debut }}">
+            <input type="date" name="date_fin" value="{{ date_fin }}">
+            <button type="submit" class="btn-filter">🔍 Filtrer</button>
+            <a href="{{ url_for('magasinier_dashboard') }}" class="btn-reset">🔄 Réinitialiser</a>
+        </form>
     </div>
 </div>
 {% endblock %}

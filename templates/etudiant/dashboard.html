@@ -107,14 +107,64 @@
 
 <script>
 function reserverMachine(machineId) {
-    const date = prompt("Date (YYYY-MM-DD) :");
-    if (!date) return;
-    const debut = prompt("Heure début (HH:MM) :");
-    if (!debut) return;
-    const fin = prompt("Heure fin (HH:MM) :");
-    if (!fin) return;
-    const groupe = prompt("Membres du groupe (noms séparés par des virgules) :") || '';
+    // 1. Type de réservation
+    const typeReservation = prompt(
+        "Type de réservation :\n" +
+        "1 - TP encadré (séance TP)\n" +
+        "2 - TP personnel (UE/Projet)\n" +
+        "3 - Utilisation libre\n" +
+        "4 - Pas de machine (TP sans équipement)\n\n" +
+        "Entrez le numéro (1, 2, 3 ou 4) :"
+    );
     
+    if (!typeReservation) return;
+    
+    let type = '';
+    let seanceId = '';
+    let ueProjet = '';
+    let besoinMachine = true;
+    
+    if (typeReservation === '1') {
+        type = 'TP';
+        seanceId = prompt("Entrez l'ID de la séance TP (ex: 1) :");
+        if (!seanceId) return;
+    } else if (typeReservation === '2') {
+        type = 'PERSO';
+        ueProjet = prompt("Entrez l'UE ou le projet concerné :");
+        if (!ueProjet) return;
+    } else if (typeReservation === '3') {
+        type = 'LIBRE';
+    } else if (typeReservation === '4') {
+        type = 'SANS_MACHINE';
+        besoinMachine = false;
+    } else {
+        alert('❌ Choix invalide');
+        return;
+    }
+    
+    // 2. Date et heure (uniquement si besoin de machine)
+    let date = '';
+    let debut = '';
+    let fin = '';
+    
+    if (besoinMachine) {
+        date = prompt("Date (JJ-MM-AAAA) :");
+        if (!date) return;
+        debut = prompt("Heure début (HH:MM) :");
+        if (!debut) return;
+        fin = prompt("Heure fin (HH:MM) :");
+        if (!fin) return;
+    } else {
+        date = 'Sans machine';
+        debut = '00:00';
+        fin = '00:00';
+    }
+    
+    // 3. Groupe (identifiants étudiants)
+    const identifiantsGroupe = prompt("Identifiants des membres du groupe (séparés par des virgules) :") || '';
+    const commentaire = prompt("Commentaire (optionnel) :") || '';
+    
+    // 4. Création du formulaire
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = "{{ url_for('reserver_machine') }}";
@@ -124,8 +174,15 @@ function reserverMachine(machineId) {
         'date_reservation': date,
         'heure_debut': debut,
         'heure_fin': fin,
-        'membres_groupe': groupe
+        'membres_groupe': identifiantsGroupe,
+        'type_reservation': type,
+        'ue_projet': ueProjet,
+        'commentaire': commentaire
     };
+    
+    if (seanceId) {
+        fields['seance_id'] = seanceId;
+    }
     
     for (const [name, value] of Object.entries(fields)) {
         const input = document.createElement('input');
@@ -138,5 +195,3 @@ function reserverMachine(machineId) {
     document.body.appendChild(form);
     form.submit();
 }
-</script>
-{% endblock %}

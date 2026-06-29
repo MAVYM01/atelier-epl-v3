@@ -60,15 +60,33 @@
                 <tr>
                     <td>{{ m.id }}</td>
                     <td>{{ m.nom }}</td>
-                    <td><span class="badge badge-{{ m.statut }}">{{ m.statut }}</span></td>
+                    <td>
+                        {% if m.statut == 'operationnel' %}
+                            <span class="badge badge-operationnel">🟢 Opérationnel</span>
+                        {% elif m.statut == 'panne' %}
+                            <span class="badge badge-panne">🔴 En panne</span>
+                        {% elif m.statut == 'reparation' %}
+                            <span class="badge badge-reparation">🟠 En réparation</span>
+                        {% elif m.statut == 'irreparable' %}
+                            <span class="badge badge-irreparable">⚫ Irréparable</span>
+                        {% else %}
+                            <span class="badge badge-{{ m.statut }}">{{ m.statut }}</span>
+                        {% endif %}
+                    </td>
                     <td>{{ m.compteur_heures }}</td>
                     <td>{{ m.puissance_elec }} kW</td>
                     <td>
-                        {% if m.statut == 'panne' or m.statut == 'reparation' %}
-                            <a href="{{ url_for('admin_reparer_machine', machine_id=m.id) }}" class="btn-repair">🔧 Réparer</a>
+                        {% if m.statut != 'operationnel' %}
+                            <a href="{{ url_for('admin_reparer_machine', machine_id=m.id) }}" class="btn-repair">✅ Réparer</a>
+                        {% endif %}
+                        {% if m.statut == 'operationnel' %}
+                            <a href="{{ url_for('admin_mettre_reparation', machine_id=m.id) }}" class="btn-repair-orange">🔧 Mettre en réparation</a>
+                        {% endif %}
+                        {% if m.statut != 'irreparable' and m.statut != 'panne' %}
+                            <a href="{{ url_for('admin_declarer_panne', machine_id=m.id) }}" class="btn-panne">⚠️ Panne</a>
                         {% endif %}
                         {% if m.statut != 'irreparable' %}
-                            <a href="{{ url_for('admin_irreparable_machine', machine_id=m.id) }}" class="btn-irreparable">⚫ Irréparable</a>
+                            <a href="{{ url_for('admin_irreparable_machine', machine_id=m.id) }}" class="btn-irreparable">🚫 Irréparable</a>
                         {% endif %}
                         <a href="{{ url_for('admin_supprimer_machine', machine_id=m.id) }}" class="btn-delete">🗑️</a>
                     </td>
@@ -119,6 +137,174 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <!-- TOUS LES UTILISATEURS PAR RÔLE -->
+    <div class="card">
+        <h2>👥 Tous les utilisateurs</h2>
+        
+        <!-- Admins -->
+        <h3>👑 Administrateurs</h3>
+        <table class="data-table">
+            <thead><tr><th>Nom</th><th>Email</th><th>Dernière connexion</th></tr></thead>
+            <tbody>
+                {% for u in tous_utilisateurs if u.role == 'admin' %}
+                <tr>
+                    <td>{{ u.nom_complet }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{{ u.derniere_connexion or 'Jamais' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">Aucun administrateur</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Enseignants -->
+        <h3>👨‍🏫 Enseignants</h3>
+        <table class="data-table">
+            <thead><tr><th>Nom</th><th>Email</th><th>Dernière connexion</th></tr></thead>
+            <tbody>
+                {% for u in tous_utilisateurs if u.role == 'enseignant' %}
+                <tr>
+                    <td>{{ u.nom_complet }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{{ u.derniere_connexion or 'Jamais' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">Aucun enseignant</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Magasiniers -->
+        <h3>📦 Magasiniers</h3>
+        <table class="data-table">
+            <thead><tr><th>Nom</th><th>Email</th><th>Dernière connexion</th></tr></thead>
+            <tbody>
+                {% for u in tous_utilisateurs if u.role == 'magasinier' %}
+                <tr>
+                    <td>{{ u.nom_complet }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{{ u.derniere_connexion or 'Jamais' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">Aucun magasinier</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Étudiants -->
+        <h3>🎓 Étudiants</h3>
+        <table class="data-table">
+            <thead><tr><th>Nom</th><th>Email</th><th>Dernière connexion</th></tr></thead>
+            <tbody>
+                {% for u in tous_utilisateurs if u.role == 'etudiant' %}
+                <tr>
+                    <td>{{ u.nom_complet }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{{ u.derniere_connexion or 'Jamais' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3">Aucun étudiant</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- TOUTES LES SÉANCES TP -->
+    <div class="card">
+        <h2>📚 Toutes les séances TP</h2>
+        <table class="data-table">
+            <thead><tr><th>Titre</th><th>Enseignant</th><th>Date</th><th>Inscrits</th></tr></thead>
+            <tbody>
+                {% for s in toutes_seances %}
+                <tr>
+                    <td>{{ s.titre }}</td>
+                    <td>{{ s.enseignant_nom }}</td>
+                    <td>{{ s.date_seance }}</td>
+                    <td>{{ s.nb_inscrits }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- TOUTES LES RÉSERVATIONS -->
+    <div class="card">
+        <h2>📅 Toutes les réservations</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Étudiant</th>
+                    <th>Machine</th>
+                    <th>Date</th>
+                    <th>Heure</th>
+                    <th>Séance TP</th>
+                    <th>Statut</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in toutes_reservations %}
+                <tr>
+                    <td>{{ r.etudiant_nom }}</td>
+                    <td>{{ r.machine_nom }}</td>
+                    <td>{{ r.date_reservation }}</td>
+                    <td>{{ r.heure_debut }} - {{ r.heure_fin }}</td>
+                    <td>{{ r.seance_titre or '-' }}</td>
+                    <td><span class="badge badge-{{ r.statut }}">{{ r.statut }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <!-- RÉSERVATIONS EN ATTENTE DE VALIDATION -->
+    <div class="card">
+        <h2>⏳ Réservations en attente de validation</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Étudiant</th>
+                    <th>Machine</th>
+                    <th>Date</th>
+                    <th>Heure</th>
+                    <th>Type</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reservations_attente %}
+                <tr>
+                    <td>{{ r.etudiant_nom }}</td>
+                    <td>{{ r.machine_nom }}</td>
+                    <td>{{ r.date_reservation }}</td>
+                    <td>{{ r.heure_debut }} - {{ r.heure_fin }}</td>
+                    <td>
+                        {% if r.type_reservation == 'PERSO' %}
+                            <span class="badge badge-warning">🔬 TP personnel</span>
+                        {% else %}
+                            <span class="badge badge-success">🎯 Libre</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('admin_valider_reservation', reservation_id=r.id) }}" class="btn-validate">✅ Valider</a>
+                        <a href="{{ url_for('admin_refuser_reservation', reservation_id=r.id) }}" class="btn-reject">❌ Refuser</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <!-- ANNÉE ACADÉMIQUE -->
+    <div class="card">
+        <h2>📅 Année académique</h2>
+        <p>Année en cours : <strong>{{ annee_active }}</strong></p>
+        <form method="POST" action="{{ url_for('admin_clore_annee') }}" style="display:inline;">
+            <button type="submit" class="btn-warning" onclick="return confirm('⚠️ Clôturer cette année académique ?')">📅 Clôturer l'année</button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_creer_annee') }}" style="display:inline;">
+            <button type="submit" class="btn-add">➕ Créer nouvelle année</button>
+        </form>
     </div>
 </div>
 {% endblock %}

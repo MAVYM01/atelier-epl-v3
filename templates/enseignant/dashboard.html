@@ -70,25 +70,45 @@
         </table>
     </div>
 
-    <!-- TP EN COURS -->
-    {% if tp_en_cours %}
+    <!-- RÉSERVATIONS DES ÉTUDIANTS -->
     <div class="card">
-        <h2>🟢 TP en cours</h2>
+        <h2>📋 Réservations des étudiants (mes séances)</h2>
         <table class="data-table">
-            <thead><tr><th>Étudiant</th><th>Machine</th><th>Séance</th><th>Début</th><th>Action</th></tr></thead>
-            <tbody>
-                {% for t in tp_en_cours %}
+            <thead>
                 <tr>
-                    <td>{{ t.etudiant_nom }}</td>
-                    <td>{{ t.machine_nom }}</td>
-                    <td>{{ t.seance_titre }}</td>
-                    <td>{{ t.date_debut }}</td>
-                    <td><a href="{{ url_for('suspendre_utilisation', suivi_id=t.id) }}" class="btn-suspendre">⏸️ Suspendre</a></td>
+                    <th>Étudiant</th>
+                    <th>Machine</th>
+                    <th>Date</th>
+                    <th>Heure</th>
+                    <th>Type</th>
+                    <th>Groupe</th>
+                    <th>UE/Projet</th>
+                    <th>Commentaire</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reservations_etudiants %}
+                <tr>
+                    <td>{{ r.etudiant_nom }}</td>
+                    <td>{{ r.machine_nom }}</td>
+                    <td>{{ r.date_reservation }}</td>
+                    <td>{{ r.heure_debut }} - {{ r.heure_fin }}</td>
+                    <td>
+                        {% if r.type_reservation == 'TP' %}
+                            <span class="badge badge-info">📚 TP encadré</span>
+                        {% elif r.type_reservation == 'PERSO' %}
+                            <span class="badge badge-warning">🔬 TP personnel</span>
+                        {% else %}
+                            <span class="badge badge-success">🎯 Libre</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.membres_groupe or '-' }}</td>
+                    <td>{{ r.ue_projet or '-' }}</td>
+                    <td>{{ r.commentaire or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-    {% endif %}
 </div>
 {% endblock %}

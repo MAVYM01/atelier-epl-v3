@@ -418,3 +418,28 @@ body {
     .stats-grid { grid-template-columns: 1fr; }
     .stats-mini { grid-template-columns: 1fr 1fr; }
 }
+.btn-repair-orange {
+    background: #ed8936;
+    color: white;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: none;
+    display: inline-block;
+}
+.btn-repair-orange:hover {
+    background: #dd6b20;
+}
+.alert-row-critical {
+    background: #fff5f5 !important;
+    border-left: 4px solid #e53e3e;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0% { background-color: #fff5f5; }
+    50% { background-color: #fed7d7; }
+    100% { background-color: #fff5f5; }
+}
